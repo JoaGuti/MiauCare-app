@@ -1,58 +1,36 @@
-const mongoose = require('mongoose');
+const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
 
-// CONFIGURACIÓN: Cambia esto si tu base de datos no es local o tiene otro nombre
-const MONGO_URI = 'mongodb://localhost:27017/miaucare'; 
+const prisma = new PrismaClient();
 
-// DEFINICIÓN DEL MODELO (Ajusta los campos si tu app MiauCare pide algo más, ej: email)
-const UserSchema = new mongoose.Schema({
-    username: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
-    createdAt: { type: Date, default: Date.now }
-});
+async function main() {
+  const usernameInput = 'JoaGuti';
+  const passwordInput = '44076698';
 
-const User = mongoose.model('User', UserSchema);
+  // 1. Encriptar la contraseña de forma segura
+  const hashedPassword = await bcrypt.hash(passwordInput, 10);
 
-async function registrarUsuario() {
-    try {
-        // 1. Conectar a la base de datos de MiauCare
-        await mongoose.connect(MONGO_URI);
-        console.log('🔄 Conectado exitosamente a la base de datos de MiauCare...');
+  try {
+    // 2. Insertar el usuario en la tabla correcta de Prisma
+    // Nota: Si tu modelo de Prisma se llama de otra forma (ej: 'usuario'), cambia prisma.user por prisma.usuario
+    const nuevoUsuario = await prisma.user.create({
+      data: {
+        username: usernameInput,
+        password: hashedPassword,
+      },
+    });
 
-        const usernameInput = 'JoaGuti';
-        const passwordInput = '44076698';
-
-        // 2. Verificar si el usuario ya existe para no duplicarlo
-        const usuarioExistente = await User.findOne({ username: usernameInput });
-        if (usuarioExistente) {
-            console.log(`⚠️ El usuario "${usernameInput}" ya existe en la base de datos.`);
-            return;
-        }
-
-        // 3. Encriptar la contraseña (Seguridad)
-        const saltRounds = 10;
-        const hashedPassword = await bcrypt.hash(passwordInput, saltRounds);
-
-        // 4. Crear el nuevo registro
-        const nuevoUsuario = new User({
-            username: usernameInput,
-            password: hashedPassword
-        });
-
-        // 5. Guardar en la base de datos
-        await nuevoUsuario.save();
-        console.log(`\n✅ ¡Usuario creado con éxito!`);
-        console.log(`👤 Username: ${usernameInput}`);
-        console.log(`🔒 Password guardada como Hash: ${hashedPassword.substring(0, 15)}...`);
-
-    } catch (error) {
-        console.error('❌ Hubo un error al intentar registrar el usuario:', error);
-    } finally {
-        // 6. Cerrar la conexión
-        await mongoose.disconnect();
-        console.log('🔌 Conexión con la base de datos cerrada.');
+    console.log(`\n✅ ¡Usuario creado con éxito en tu SQLite local!`);
+    console.log(`👤 Username: ${nuevoUsuario.username}`);
+  } catch (error) {
+    if (error.code === 'P2002') {
+      console.log(`⚠️ El usuario "${usernameInput}" ya existe en la base de datos.`);
+    } else {
+      console.error('❌ Error al crear el usuario. Es posible que los campos de tu modelo sean diferentes:', error.message);
     }
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
-// Ejecutar la función
-registrarUsuario();
+main();
