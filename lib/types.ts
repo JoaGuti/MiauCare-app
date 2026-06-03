@@ -1,6 +1,6 @@
 export type CatMood = "happy" | "sad" | "sleeping"
 
-export type Caregiver = "Cuidador 1" | "Cuidador 2"
+export type Caregiver = string
 
 export interface CatNeeds {
   hunger: number

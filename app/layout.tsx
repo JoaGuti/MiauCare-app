@@ -37,6 +37,8 @@ export const metadata: Metadata = {
   },
 }
 
+import { SessionProvider } from '@/components/session-provider'
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -45,7 +47,9 @@ export default function RootLayout({
   return (
     <html lang="es" className="bg-cream-50">
       <body className="font-sans antialiased">
-        {children}
+        <SessionProvider>
+          {children}
+        </SessionProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

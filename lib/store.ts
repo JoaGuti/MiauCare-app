@@ -1,150 +1,379 @@
 "use client"
 
 import { create } from "zustand"
-import type { CatNeeds, Caregiver, ActivityLog, VetAppointment, MedicalRecord, CaregiverStats } from "./types"
+import type { CatNeeds, ActivityLog, VetAppointment, MedicalRecord, CaregiverStats } from "./types"
+
+interface ActiveCatData {
+  id: string
+  name: string
+  breed: string | null
+  age: string | null
+  inviteCode: string
+  weight: number
+  lastVaccine: Date
+  lastDeworming: Date
+  hunger: number
+  hygiene: number
+  fun: number
+  caregivers: Array<{ id: string; name: string; image: string | null; role: string }>
+}
 
 interface AppState {
-  currentCaregiver: Caregiver
+  // Authentication & List
+  cats: ActiveCatData[]
+  activeCatId: string | null
+  activeCat: ActiveCatData | null
+  isLoading: boolean
+  
+  // Active Cat Care States
   catNeeds: CatNeeds
   streak: number
   activityLog: ActivityLog[]
   appointments: VetAppointment[]
   medicalRecord: MedicalRecord
   caregiverStats: CaregiverStats[]
-  
-  setCaregiver: (caregiver: Caregiver) => void
-  feed: () => void
-  clean: () => void
-  giveSnack: () => void
-  play: () => void
+
+  // Sync helpers
+  ticksSinceLastSync: number
+
+  // Actions
+  fetchCats: () => Promise<void>
+  selectCat: (id: string) => Promise<void>
+  createCat: (name: string, breed: string, age: string, weight: number) => Promise<any>
+  joinCat: (inviteCode: string) => Promise<boolean>
+  clearActiveCat: () => void
+
+  // Care actions
+  feed: () => Promise<void>
+  clean: () => Promise<void>
+  giveSnack: () => Promise<void>
+  play: () => Promise<void>
   decreaseNeeds: () => void
-  addVetNote: (note: string) => void
-}
-
-const addActivity = (state: AppState, action: string): ActivityLog[] => {
-  const newActivity: ActivityLog = {
-    id: Date.now().toString(),
-    caregiver: state.currentCaregiver,
-    action,
-    timestamp: new Date(),
-  }
-  return [newActivity, ...state.activityLog].slice(0, 20)
-}
-
-const updateStats = (stats: CaregiverStats[], caregiver: Caregiver): CaregiverStats[] => {
-  return stats.map((s) =>
-    s.caregiver === caregiver ? { ...s, tasksThisWeek: s.tasksThisWeek + 1 } : s
-  )
+  addVetNote: (note: string) => Promise<void>
+  addAppointment: (title: string, date: Date, type: "vaccine" | "checkup" | "treatment") => Promise<void>
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  currentCaregiver: "Cuidador 1",
+  cats: [],
+  activeCatId: null,
+  activeCat: null,
+  isLoading: false,
+
   catNeeds: {
     hunger: 75,
     hygiene: 80,
     fun: 60,
   },
-  streak: 7,
-  activityLog: [
-    {
-      id: "1",
-      caregiver: "Cuidador 1",
-      action: "le dio de comer",
-      timestamp: new Date(Date.now() - 1000 * 60 * 5),
-    },
-    {
-      id: "2",
-      caregiver: "Cuidador 2",
-      action: "limpió las piedras",
-      timestamp: new Date(Date.now() - 1000 * 60 * 30),
-    },
-    {
-      id: "3",
-      caregiver: "Cuidador 1",
-      action: "jugó con el gatito",
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2),
-    },
-  ],
-  appointments: [
-    {
-      id: "1",
-      title: "Vacuna Rabia",
-      date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),
-      type: "vaccine",
-    },
-    {
-      id: "2",
-      title: "Cita Veterinario",
-      date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14),
-      type: "checkup",
-    },
-    {
-      id: "3",
-      title: "Pipeta Antiparasitaria",
-      date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
-      type: "treatment",
-    },
-  ],
+  streak: 0,
+  activityLog: [],
+  appointments: [],
   medicalRecord: {
     weight: 4.2,
-    lastVaccine: new Date(Date.now() - 1000 * 60 * 60 * 24 * 90),
-    lastDeworming: new Date(Date.now() - 1000 * 60 * 60 * 24 * 45),
-    notes: ["Revisión general - Todo bien", "Vacuna triple felina aplicada"],
+    lastVaccine: new Date(),
+    lastDeworming: new Date(),
+    notes: [],
   },
-  caregiverStats: [
-    { caregiver: "Cuidador 1", tasksThisWeek: 12 },
-    { caregiver: "Cuidador 2", tasksThisWeek: 8 },
-  ],
+  caregiverStats: [],
+  ticksSinceLastSync: 0,
 
-  setCaregiver: (caregiver) => set({ currentCaregiver: caregiver }),
+  fetchCats: async () => {
+    set({ isLoading: true })
+    try {
+      const res = await fetch("/api/cats")
+      if (res.ok) {
+        const data = await res.json()
+        set({ cats: data })
+      }
+    } catch (e) {
+      console.error("Error fetching cats:", e)
+    } finally {
+      set({ isLoading: false })
+    }
+  },
 
-  feed: () =>
+  selectCat: async (id: string) => {
+    set({ isLoading: true, activeCatId: id })
+    try {
+      const res = await fetch(`/api/cats/${id}`)
+      if (res.ok) {
+        const cat = await res.json()
+        
+        // Parse dates
+        const appointments = cat.appointments.map((a: any) => ({
+          ...a,
+          date: new Date(a.date)
+        }))
+        
+        const medicalRecord: MedicalRecord = {
+          weight: cat.weight,
+          lastVaccine: new Date(cat.lastVaccine),
+          lastDeworming: new Date(cat.lastDeworming),
+          notes: cat.medicalNotes.map((n: any) => n.content),
+        }
+
+        const activityLog = cat.activities.map((act: any) => ({
+          id: act.id,
+          caregiver: act.userName,
+          action: act.action,
+          timestamp: new Date(act.timestamp),
+        }))
+
+        set({
+          activeCat: {
+            id: cat.id,
+            name: cat.name,
+            breed: cat.breed,
+            age: cat.age,
+            inviteCode: cat.inviteCode,
+            weight: cat.weight,
+            lastVaccine: new Date(cat.lastVaccine),
+            lastDeworming: new Date(cat.lastDeworming),
+            hunger: cat.hunger,
+            hygiene: cat.hygiene,
+            fun: cat.fun,
+            caregivers: cat.caregivers,
+          },
+          catNeeds: {
+            hunger: cat.hunger,
+            hygiene: cat.hygiene,
+            fun: cat.fun,
+          },
+          streak: cat.streak,
+          appointments,
+          medicalRecord,
+          activityLog,
+          caregiverStats: cat.caregiverStats,
+        })
+      }
+    } catch (e) {
+      console.error("Error selecting cat:", e)
+    } finally {
+      set({ isLoading: false })
+    }
+  },
+
+  createCat: async (name, breed, age, weight) => {
+    set({ isLoading: true })
+    try {
+      const res = await fetch("/api/cats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, breed, age, weight }),
+      })
+      if (res.ok) {
+        const newCat = await res.json()
+        set((state) => ({ cats: [...state.cats, newCat] }))
+        return newCat
+      }
+    } catch (e) {
+      console.error("Error creating cat:", e)
+    } finally {
+      set({ isLoading: false })
+    }
+    return null
+  },
+
+  joinCat: async (inviteCode) => {
+    set({ isLoading: true })
+    try {
+      const res = await fetch("/api/cats/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inviteCode }),
+      })
+      if (res.ok) {
+        await get().fetchCats()
+        return true
+      }
+    } catch (e) {
+      console.error("Error joining cat:", e)
+    } finally {
+      set({ isLoading: false })
+    }
+    return false
+  },
+
+  clearActiveCat: () => {
+    set({
+      activeCatId: null,
+      activeCat: null,
+      catNeeds: { hunger: 50, hygiene: 50, fun: 50 },
+      streak: 0,
+      activityLog: [],
+      appointments: [],
+      medicalRecord: { weight: 4.2, lastVaccine: new Date(), lastDeworming: new Date(), notes: [] },
+      caregiverStats: [],
+    })
+  },
+
+  feed: async () => {
+    const id = get().activeCatId
+    if (!id) return
+
+    // Optimistic Update
     set((state) => ({
       catNeeds: { ...state.catNeeds, hunger: Math.min(100, state.catNeeds.hunger + 30) },
-      activityLog: addActivity(state, "le dio de comer"),
-      caregiverStats: updateStats(state.caregiverStats, state.currentCaregiver),
-    })),
+    }))
 
-  clean: () =>
+    try {
+      const res = await fetch(`/api/cats/${id}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "feed" }),
+      })
+      if (res.ok) {
+        await get().selectCat(id) // Refresh full details and activity log
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  },
+
+  clean: async () => {
+    const id = get().activeCatId
+    if (!id) return
+
+    // Optimistic Update
     set((state) => ({
       catNeeds: { ...state.catNeeds, hygiene: Math.min(100, state.catNeeds.hygiene + 35) },
-      activityLog: addActivity(state, "limpió las piedras"),
-      caregiverStats: updateStats(state.caregiverStats, state.currentCaregiver),
-    })),
+    }))
 
-  giveSnack: () =>
+    try {
+      const res = await fetch(`/api/cats/${id}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clean" }),
+      })
+      if (res.ok) {
+        await get().selectCat(id)
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  },
+
+  giveSnack: async () => {
+    const id = get().activeCatId
+    if (!id) return
+
+    // Optimistic Update
     set((state) => ({
       catNeeds: { ...state.catNeeds, fun: Math.min(100, state.catNeeds.fun + 10) },
-      activityLog: addActivity(state, "le dio un snack"),
-      caregiverStats: updateStats(state.caregiverStats, state.currentCaregiver),
-    })),
+    }))
 
-  play: () =>
+    try {
+      const res = await fetch(`/api/cats/${id}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "snack" }),
+      })
+      if (res.ok) {
+        await get().selectCat(id)
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  },
+
+  play: async () => {
+    const id = get().activeCatId
+    if (!id) return
+
+    // Optimistic Update
     set((state) => ({
       catNeeds: { ...state.catNeeds, fun: Math.min(100, state.catNeeds.fun + 25) },
-      activityLog: addActivity(state, "jugó con el gatito"),
-      caregiverStats: updateStats(state.caregiverStats, state.currentCaregiver),
-    })),
+    }))
 
-  decreaseNeeds: () =>
+    try {
+      const res = await fetch(`/api/cats/${id}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "play" }),
+      })
+      if (res.ok) {
+        await get().selectCat(id)
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  },
+
+  decreaseNeeds: () => {
+    const id = get().activeCatId
+    if (!id) return
+
     set((state) => {
       const newNeeds = {
-        hunger: Math.max(0, state.catNeeds.hunger - 1),
-        hygiene: Math.max(0, state.catNeeds.hygiene - 0.5),
-        fun: Math.max(0, state.catNeeds.fun - 0.8),
+        hunger: Math.max(0, state.catNeeds.hunger - 0.2), // slow down local decay a bit
+        hygiene: Math.max(0, state.catNeeds.hygiene - 0.1),
+        fun: Math.max(0, state.catNeeds.fun - 0.15),
       }
+      
       const isHealthy = newNeeds.hunger > 20 && newNeeds.hygiene > 20 && newNeeds.fun > 20
+      const nextTicks = state.ticksSinceLastSync + 1
+
+      // Periodically sync needs with the server (every 10 ticks = 30 seconds)
+      if (nextTicks >= 10) {
+        fetch(`/api/cats/${id}/action`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "sync",
+            needs: {
+              ...newNeeds,
+              streak: isHealthy ? state.streak : 0,
+            },
+          }),
+        }).catch(console.error)
+        
+        return {
+          catNeeds: newNeeds,
+          streak: isHealthy ? state.streak : 0,
+          ticksSinceLastSync: 0,
+        }
+      }
+
       return {
         catNeeds: newNeeds,
         streak: isHealthy ? state.streak : 0,
+        ticksSinceLastSync: nextTicks,
       }
-    }),
+    })
+  },
 
-  addVetNote: (note) =>
-    set((state) => ({
-      medicalRecord: {
-        ...state.medicalRecord,
-        notes: [note, ...state.medicalRecord.notes],
-      },
-    })),
+  addVetNote: async (note) => {
+    const id = get().activeCatId
+    if (!id) return
+
+    try {
+      const res = await fetch(`/api/cats/${id}/vet-note`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: note }),
+      })
+      if (res.ok) {
+        await get().selectCat(id)
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  },
+
+  addAppointment: async (title, date, type) => {
+    const id = get().activeCatId
+    if (!id) return
+
+    try {
+      const res = await fetch(`/api/cats/${id}/appointment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, date, type }),
+      })
+      if (res.ok) {
+        await get().selectCat(id)
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  },
 }))
